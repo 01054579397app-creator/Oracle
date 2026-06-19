@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TLR Beep Sound Generator</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 18px; line-height: 1.6; }
+    button { font-size: 17px; padding: 12px 16px; margin: 8px 8px 8px 0; border-radius: 10px; border: 1px solid #aaa; }
+    .card { border: 1px solid #ddd; border-radius: 14px; padding: 18px; margin: 16px 0; }
+    code { background: #f4f4f4; padding: 2px 6px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>TLR Beep Sound Generator</h1>
+  <p>설정: 각 비프음 <code>200ms</code>, 비프 사이 간격 <code>200ms</code>, <code>15초마다 반복</code>, 총 <code>2분</code>.</p>
+
+  <div class="card">
+    <h2>500 / 700 / 900 Hz</h2>
+    <button onclick="playBeep([500,700,900])">재생</button>
+    <button onclick="downloadBeep([500,700,900], 'TLR_beep_500_700_900Hz_2min_15sec_interval.wav')">WAV 다운로드</button>
+  </div>
+
+  <div class="card">
+    <h2>400 / 600 / 800 Hz</h2>
+    <button onclick="playBeep([400,600,800])">재생</button>
+    <button onclick="downloadBeep([400,600,800], 'TLR_beep_400_600_800Hz_2min_15sec_interval.wav')">WAV 다운로드</button>
+  </div>
+
+<script>
+const sampleRate = 44100;
+const totalSeconds = 120;
+const intervalSeconds = 15;
+const toneMs = 200;
+const gapMs = 200;
+const amplitude = 0.18;
+
+function makeSamples(freqs) {
+  const totalSamples = sampleRate * totalSeconds;
+  const samples = new Float32Array(totalSamples);
+
+  for (let startSec = 0; startSec < totalSeconds; startSec += intervalSeconds) {
+    let offset = Math.floor(startSec * sampleRate);
+
+    for (const freq of freqs) {
+      const toneSamples = Math.floor(sampleRate * toneMs / 1000);
+      for (let i = 0; i < toneSamples && offset + i < totalSamples; i++) {
+        const t = i / sampleRate;
+        let env = 1.0;
+        const fade = Math.floor(sampleRate * 0.01);
+        if (i < fade) env = i / fade;
+        if (i > toneSamples - fade) env = (toneSamples - i) / fade;
+        samples[offset + i] += amplitude * env * Math.sin(2 * Math.PI * freq * t);
+      }
+      offset += toneSamples + Math.floor(sampleRate * gapMs / 1000);
+    }
+  }
+  return samples;
+}
+
+function samplesToWavBlob(samples) {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * bitsPerSample / 8;
+  const blockAlign = numChannels * bitsPerSample / 8;
+  const dataSize = samples.length * 2;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  function writeString(pos, str) {
+    for (let i = 0; i < str.length; i++) view.setUint8(pos + i, str.charCodeAt(i));
+  }
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeString(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let pos = 44;
+  for (let i = 0; i < samples.length; i++, pos += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(pos, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+async function playBeep(freqs) {
+  const blob = samplesToWavBlob(makeSamples(freqs));
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  await audio.play();
+}
+
+function downloadBeep(freqs, filename) {
+  const blob = samplesToWavBlob(makeSamples(freqs));
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+</script>
+</body>
+</html>
